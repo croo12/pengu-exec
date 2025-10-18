@@ -39,41 +39,289 @@ pub struct JiraIssue {
 
 // AI 분석 명령어
 #[tauri::command]
-async fn analyze_with_ai(text: String, _config: AIConfig) -> Result<IssueAnalysis, String> {
-    // TODO: 실제 AI API 호출 구현
-    // 현재는 시뮬레이션
+async fn analyze_with_ai(text: String, config: AIConfig) -> Result<IssueAnalysis, String> {
+    let client = reqwest::Client::new();
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent", config.model);
     
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    let prompt = format!(
+        "다음 사용자 요청을 분석하여 Jira 이슈로 변환해주세요:\n\n\
+        사용자 요청: {}\n\n\
+        다음 JSON 형식으로 응답해주세요:\n\
+        {{\n\
+            \"title\": \"이슈 제목 (한국어, 50자 이내)\",\n\
+            \"description\": \"상세 설명 (한국어, 사용자 요청을 바탕으로 구체적으로 작성)\",\n\
+            \"issue_type\": \"Bug|Task|Story|Epic 중 하나\",\n\
+            \"priority\": \"Low|Medium|High|Critical 중 하나\",\n\
+            \"labels\": [\"관련 라벨1\", \"관련 라벨2\"]\n\
+        }}\n\n\
+        분석 기준:\n\
+        - 버그 관련 키워드가 있으면 Bug 타입\n\
+        - 새로운 기능 요청이면 Story 타입\n\
+        - 일반적인 작업이면 Task 타입\n\
+        - 큰 프로젝트나 여러 기능을 포함하면 Epic 타입\n\
+        - 긴급하거나 중요한 내용이면 High/Critical 우선순위\n\
+        - 일반적인 내용이면 Medium 우선순위\n\
+        - 간단한 내용이면 Low 우선순위",
+        text
+    );
     
-    let analysis = IssueAnalysis {
-        title: format!("AI 분석된 제목: {}", text.chars().take(50).collect::<String>()),
-        description: format!("사용자 요청: {}\n\nAI가 분석하여 생성된 이슈입니다.", text),
-        issue_type: if text.to_lowercase().contains("버그") { "Bug".to_string() } else { "Task".to_string() },
-        priority: "Medium".to_string(),
-        labels: vec!["ai-generated".to_string()],
-    };
+    let request_data = serde_json::json!({
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": format!("당신은 Jira 이슈 관리 전문가입니다. 사용자의 자연어 요청을 분석하여 적절한 Jira 이슈로 변환해주세요.\n\n{}", prompt)
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": config.temperature,
+            "maxOutputTokens": 2000
+        }
+    });
     
-    Ok(analysis)
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .query(&[("key", &config.api_key)])
+        .json(&request_data)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini API 네트워크 오류: {}", e))?;
+    
+    if response.status().is_success() {
+        let response_data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Gemini API 응답 파싱 오류: {}", e))?;
+
+        println!("Gemini API 응답: {:?}", response_data);
+        
+        // 응답 구조 분석
+        let candidates = &response_data["candidates"];
+        if candidates.is_array() && !candidates.as_array().unwrap().is_empty() {
+            let candidate = &candidates[0];
+            let finish_reason = candidate["finishReason"].as_str().unwrap_or("");
+            
+            println!("Finish reason: {}", finish_reason);
+            
+            // finishReason이 MAX_TOKENS인 경우 처리
+            if finish_reason == "MAX_TOKENS" {
+                return Err("응답이 너무 길어서 잘렸습니다. 더 간단한 요청을 시도해주세요.".to_string());
+            }
+            
+            // content에서 텍스트 추출
+            if let Some(content_obj) = candidate["content"].as_object() {
+                if let Some(parts) = content_obj["parts"].as_array() {
+                    if !parts.is_empty() {
+                        if let Some(text) = parts[0]["text"].as_str() {
+                            // 코드 블록 제거 (```json ... ```)
+                            let content = if text.starts_with("```json") && text.ends_with("```") {
+                                // ```json과 ``` 제거
+                                let start = text.find('\n').unwrap_or(0) + 1;
+                                let end = text.rfind("```").unwrap_or(text.len());
+                                &text[start..end]
+                            } else if text.starts_with("```") && text.ends_with("```") {
+                                // 일반 코드 블록 제거
+                                let start = text.find('\n').unwrap_or(0) + 1;
+                                let end = text.rfind("```").unwrap_or(text.len());
+                                &text[start..end]
+                            } else {
+                                text
+                            };
+                            
+                            println!("정리된 JSON: {}", content);
+                            
+                            // JSON 파싱 시도
+                            let analysis: IssueAnalysis = serde_json::from_str(content)
+                                .map_err(|e| format!("AI 응답 JSON 파싱 오류: {}. 응답 내용: {}", e, content))?;
+                            
+                            return Ok(analysis);
+                        } else {
+                            return Err("응답에서 텍스트를 찾을 수 없습니다.".to_string());
+                        }
+                    } else {
+                        return Err("응답 parts가 비어있습니다.".to_string());
+                    }
+                } else {
+                    return Err("응답 content 구조가 올바르지 않습니다.".to_string());
+                }
+            } else {
+                return Err("응답 content가 없습니다.".to_string());
+            }
+        } else {
+            return Err("응답 candidates가 없습니다.".to_string());
+        }
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        
+        println!("Gemini API 오류 ({}): {}", status, error_text);
+        
+        // 404 오류인 경우 모델 관련 안내 메시지 추가
+        if status == 404 {
+            Err(format!("Gemini API 모델 오류: '{}' 모델을 찾을 수 없습니다. 지원되는 모델: gemini-2.0-flash-exp, gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-live-2.5-flash-preview, gemini-2.0-flash-live-001", config.model))
+        } else {
+            Err(format!("Gemini API 오류 ({}): {}", status, error_text))
+        }
+    }
 }
 
 // Jira 이슈 생성 명령어
 #[tauri::command]
 async fn create_jira_issue(analysis: IssueAnalysis, config: JiraConfig) -> Result<JiraIssue, String> {
-    // TODO: 실제 Jira API 호출 구현
-    // 현재는 시뮬레이션
+    let client = reqwest::Client::new();
+    let url = format!("{}/rest/api/3/issue", config.base_url.trim_end_matches('/'));
     
-    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+    // Jira 이슈 생성 요청 데이터 구성
+    let issue_data = serde_json::json!({
+        "fields": {
+            "project": {
+                "key": config.project_key
+            },
+            "summary": analysis.title,
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": analysis.description
+                            }
+                        ]
+                    }
+                ]
+            },
+            "issuetype": {
+                "name": "버그"
+            },
+            "labels": analysis.labels
+        }
+    });
     
-    let issue = JiraIssue {
-        key: format!("{}-{}", config.project_key, chrono::Utc::now().timestamp()),
-        summary: analysis.title,
-        description: analysis.description,
-        issue_type: analysis.issue_type,
-        priority: analysis.priority,
-        status: "To Do".to_string(),
-    };
+    let response = client
+        .post(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&issue_data)
+        .send()
+        .await
+        .map_err(|e| format!("네트워크 오류: {}", e))?;
     
-    Ok(issue)
+    if response.status().is_success() {
+        let response_data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("응답 파싱 오류: {}", e))?;
+        
+        let key = response_data["key"]
+            .as_str()
+            .ok_or("응답에서 이슈 키를 찾을 수 없습니다")?
+            .to_string();
+        
+        // 생성된 이슈의 상세 정보 조회
+        let issue_detail = get_jira_issue_detail(&client, &config, &key).await?;
+        
+        Ok(issue_detail)
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        
+        println!("Jira API 오류 ({}): {}", status, error_text);
+        Err(format!("Jira API 오류 ({}): {}", status, error_text))
+    }
+}
+
+// 이슈 타입을 Jira에서 사용하는 이름으로 매핑
+fn map_issue_type_to_jira(issue_type: &str) -> &'static str {
+    match issue_type {
+        "Bug" => "Bug",
+        "Task" => "Task", 
+        "Story" => "Story",
+        "Epic" => "Epic",
+        _ => "Task" // 기본값
+    }
+}
+
+// 이슈 타입 ID를 반환 (일반적인 Jira 이슈 타입 ID)
+fn get_issue_type_id(issue_type: &str) -> &'static str {
+    match issue_type {
+        "Bug" => "10001", // 일반적인 Bug 이슈 타입 ID
+        "Task" => "10002", // 일반적인 Task 이슈 타입 ID
+        "Story" => "10003", // 일반적인 Story 이슈 타입 ID
+        "Epic" => "10004", // 일반적인 Epic 이슈 타입 ID
+        _ => "10002" // 기본값: Task
+    }
+}
+
+// Jira 이슈 상세 정보 조회
+async fn get_jira_issue_detail(client: &reqwest::Client, config: &JiraConfig, issue_key: &str) -> Result<JiraIssue, String> {
+    let url = format!("{}/rest/api/3/issue/{}", config.base_url.trim_end_matches('/'), issue_key);
+    
+    let response = client
+        .get(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("네트워크 오류: {}", e))?;
+    
+    if response.status().is_success() {
+        let issue_data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("응답 파싱 오류: {}", e))?;
+        
+        let fields = &issue_data["fields"];
+        
+        let summary = fields["summary"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        let description = fields["description"]
+            .as_object()
+            .and_then(|desc| desc["content"].as_array())
+            .and_then(|content| content.first())
+            .and_then(|para| para["content"].as_array())
+            .and_then(|content| content.first())
+            .and_then(|text| text["text"].as_str())
+            .unwrap_or("")
+            .to_string();
+        
+        let issue_type = fields["issuetype"]["name"]
+            .as_str()
+            .unwrap_or("Task")
+            .to_string();
+        
+        let priority = fields["priority"]["name"]
+            .as_str()
+            .unwrap_or("Medium")
+            .to_string();
+        
+        let status = fields["status"]["name"]
+            .as_str()
+            .unwrap_or("To Do")
+            .to_string();
+        
+        Ok(JiraIssue {
+            key: issue_key.to_string(),
+            summary,
+            description,
+            issue_type,
+            priority,
+            status,
+        })
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        Err(format!("이슈 상세 조회 실패 ({}): {}", status, error_text))
+    }
 }
 
 // Jira 연결 테스트 명령어
@@ -181,6 +429,62 @@ async fn read_log_file(filename: String) -> Result<String, String> {
     Ok(content)
 }
 
+// Jira 프로젝트의 이슈 타입 조회 명령어
+#[tauri::command]
+async fn get_jira_issue_types(config: JiraConfig) -> Result<Vec<serde_json::Value>, String> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/rest/api/3/project/{}/statuses", config.base_url.trim_end_matches('/'), config.project_key);
+    
+    let response = client
+        .get(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("네트워크 오류: {}", e))?;
+    
+    if response.status().is_success() {
+        let issue_types: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|e| format!("응답 파싱 오류: {}", e))?;
+        
+        Ok(issue_types)
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        Err(format!("Jira API 오류 ({}): {}", status, error_text))
+    }
+}
+
+// Jira 프로젝트 메타데이터 조회 명령어
+#[tauri::command]
+async fn get_jira_project_metadata(config: JiraConfig) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/rest/api/3/project/{}/metadata", config.base_url.trim_end_matches('/'), config.project_key);
+    
+    let response = client
+        .get(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("네트워크 오류: {}", e))?;
+    
+    if response.status().is_success() {
+        let metadata: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("응답 파싱 오류: {}", e))?;
+        
+        Ok(metadata)
+    } else {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        Err(format!("Jira API 오류 ({}): {}", status, error_text))
+    }
+}
+
 // 기존 greet 명령어 (호환성을 위해 유지)
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -196,6 +500,8 @@ pub fn run() {
             analyze_with_ai,
             create_jira_issue,
             test_jira_connection,
+            get_jira_issue_types,
+            get_jira_project_metadata,
             save_settings,
             load_settings,
             save_logs_to_file,

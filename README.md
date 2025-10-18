@@ -22,7 +22,7 @@ PenguExec는 Tauri 프레임워크와 AI를 활용하여 자연어로 Jira 이�
 
 - **Frontend**: React + TypeScript
 - **Backend**: Tauri (Rust)
-- **AI**: OpenAI GPT API 또는 다른 AI 서비스
+- **AI**: Google Gemini API
 - **Jira 연동**: Atlassian REST API
 - **UI Framework**: Material-UI (MUI)
 - **상태 관리**: Zustand
@@ -77,12 +77,13 @@ PenguExec/
 
 ### AI 설정
 ```
-VITE_OPENAI_API_KEY=your-openai-api-key
+VITE_GEMINI_API_KEY=your-gemini-api-key
+VITE_AI_MODEL=gemini-2.0-flash-exp
 ```
 
 ## 📝 사용법
 
-1. **연결 설정**: Jira 계정 정보 및 AI API 키 설정
+1. **연결 설정**: Jira 계정 정보 및 Gemini API 키 설정
 2. **자연어 입력**: "버그 수정이 필요해", "새 기능 추가 요청" 등 자연어로 요청
 3. **AI 분석**: AI가 요청을 분석하여 이슈 타입, 우선순위, 설명 등을 결정
 4. **이슈 생성**: 분석 결과를 바탕으로 Jira에 이슈 자동 생성

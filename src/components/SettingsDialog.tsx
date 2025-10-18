@@ -58,20 +58,20 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   const [tabValue, setTabValue] = useState(0);
   const [settings, setSettings] = useState<AppSettings>({
     jira: {
-      baseUrl: '',
-      email: '',
-      apiToken: '',
-      projectKey: '',
+      baseUrl: "",
+      email: "",
+      apiToken: "",
+      projectKey: "",
     },
     ai: {
-      apiKey: '',
-      model: 'gpt-3.5-turbo',
+      apiKey: "",
+      model: "gemini-2.0-flash-exp",
       temperature: 0.7,
     },
-    theme: 'light',
-    language: 'ko',
+    theme: "light",
+    language: "ko",
   });
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -92,7 +92,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   };
 
   const handleJiraChange = (field: keyof JiraConfig, value: string) => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       jira: {
         ...prev.jira,
@@ -101,8 +101,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     }));
   };
 
-  const handleAIChange = (field: keyof AIServiceConfig, value: string | number) => {
-    setSettings(prev => ({
+  const handleAIChange = (
+    field: keyof AIServiceConfig,
+    value: string | number
+  ) => {
+    setSettings((prev) => ({
       ...prev,
       ai: {
         ...prev.ai,
@@ -111,8 +114,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     }));
   };
 
-  const handleGeneralChange = (field: keyof Pick<AppSettings, 'theme' | 'language'>, value: string) => {
-    setSettings(prev => ({
+  const handleGeneralChange = (
+    field: keyof Pick<AppSettings, "theme" | "language">,
+    value: string
+  ) => {
+    setSettings((prev) => ({
       ...prev,
       [field]: value,
     }));
@@ -121,15 +127,19 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   const testJiraConnection = async () => {
     setIsLoading(true);
     setError(null);
-    
-    logger.info('Jira 연결 테스트 시작', {
-      baseUrl: settings.jira.baseUrl,
-      email: settings.jira.email,
-      projectKey: settings.jira.projectKey
-    }, 'SettingsDialog');
-    
+
+    logger.info(
+      "Jira 연결 테스트 시작",
+      {
+        baseUrl: settings.jira.baseUrl,
+        email: settings.jira.email,
+        projectKey: settings.jira.projectKey,
+      },
+      "SettingsDialog"
+    );
+
     try {
-      const result = await invoke('test_jira_connection', {
+      const result = await invoke("test_jira_connection", {
         config: {
           base_url: settings.jira.baseUrl,
           email: settings.jira.email,
@@ -137,17 +147,25 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
           project_key: settings.jira.projectKey,
         },
       });
-      
+
       if (result) {
-        logger.info('Jira 연결 테스트 성공', null, 'SettingsDialog');
-        setSuccess('Jira 연결이 성공했습니다!');
+        logger.info("Jira 연결 테스트 성공", null, "SettingsDialog");
+        setSuccess("Jira 연결이 성공했습니다!");
       } else {
-        logger.warn('Jira 연결 테스트 실패', null, 'SettingsDialog');
-        setError('Jira 연결에 실패했습니다. 설정을 확인해주세요.');
+        logger.warn("Jira 연결 테스트 실패", null, "SettingsDialog");
+        setError("Jira 연결에 실패했습니다. 설정을 확인해주세요.");
       }
     } catch (err) {
-      logger.error('Jira 연결 테스트 중 오류가 발생했습니다.', err, 'SettingsDialog');
-      setError(err instanceof Error ? err.message : 'Jira 연결 테스트 중 오류가 발생했습니다.');
+      logger.error(
+        "Jira 연결 테스트 중 오류가 발생했습니다.",
+        err,
+        "SettingsDialog"
+      );
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Jira 연결 테스트 중 오류가 발생했습니다."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -157,23 +175,25 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     setIsLoading(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
       settingsService.saveSettings(settings);
-      setSuccess('설정이 저장되었습니다!');
-      
+      setSuccess("설정이 저장되었습니다!");
+
       // Tauri 백엔드에도 설정 저장
-      await invoke('save_settings', {
+      await invoke("save_settings", {
         settings: settings,
       });
-      
+
       setTimeout(() => {
         onClose();
       }, 1000);
-      logger.info('설정 저장 완료', { settings });
+      logger.info("설정 저장 완료", { settings });
     } catch (err) {
-      logger.error('설정 저장 중 오류가 발생했습니다.', { error: err});
-      setError(err instanceof Error ? err.message : '설정 저장 중 오류가 발생했습니다.');
+      logger.error("설정 저장 중 오류가 발생했습니다.", { error: err });
+      setError(
+        err instanceof Error ? err.message : "설정 저장 중 오류가 발생했습니다."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -184,10 +204,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
       <DialogTitle>
         <Typography variant="h5">설정</Typography>
       </DialogTitle>
-      
+
       <DialogContent>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs value={tabValue} onChange={handleTabChange} aria-label="설정 탭">
+        <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
+          <Tabs
+            value={tabValue}
+            onChange={handleTabChange}
+            aria-label="설정 탭"
+          >
             <Tab label="Jira 설정" />
             <Tab label="AI 설정" />
             <Tab label="일반 설정" />
@@ -202,7 +226,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 fullWidth
                 label="Jira Base URL"
                 value={settings.jira.baseUrl}
-                onChange={(e) => handleJiraChange('baseUrl', e.target.value)}
+                onChange={(e) => handleJiraChange("baseUrl", e.target.value)}
                 placeholder="https://your-domain.atlassian.net"
                 helperText="Jira 인스턴스의 기본 URL을 입력하세요"
               />
@@ -213,7 +237,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 label="이메일"
                 type="email"
                 value={settings.jira.email}
-                onChange={(e) => handleJiraChange('email', e.target.value)}
+                onChange={(e) => handleJiraChange("email", e.target.value)}
                 placeholder="your-email@example.com"
               />
             </Grid>
@@ -223,7 +247,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 label="API 토큰"
                 type="password"
                 value={settings.jira.apiToken}
-                onChange={(e) => handleJiraChange('apiToken', e.target.value)}
+                onChange={(e) => handleJiraChange("apiToken", e.target.value)}
                 placeholder="Jira API 토큰"
                 helperText="Atlassian 계정에서 생성한 API 토큰"
               />
@@ -233,7 +257,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 fullWidth
                 label="프로젝트 키"
                 value={settings.jira.projectKey}
-                onChange={(e) => handleJiraChange('projectKey', e.target.value)}
+                onChange={(e) => handleJiraChange("projectKey", e.target.value)}
                 placeholder="PROJ"
                 helperText="이슈를 생성할 Jira 프로젝트의 키"
               />
@@ -241,9 +265,16 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
             <Grid size={12}>
               <Button
                 variant="outlined"
-                startIcon={isLoading ? <CircularProgress size={20} /> : <TestIcon />}
+                startIcon={
+                  isLoading ? <CircularProgress size={20} /> : <TestIcon />
+                }
                 onClick={testJiraConnection}
-                disabled={isLoading || !settings.jira.baseUrl || !settings.jira.email || !settings.jira.apiToken}
+                disabled={
+                  isLoading ||
+                  !settings.jira.baseUrl ||
+                  !settings.jira.email ||
+                  !settings.jira.apiToken
+                }
                 fullWidth
               >
                 연결 테스트
@@ -258,12 +289,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
             <Grid size={12}>
               <TextField
                 fullWidth
-                label="OpenAI API 키"
+                label="Gemini API 키"
                 type="password"
                 value={settings.ai.apiKey}
-                onChange={(e) => handleAIChange('apiKey', e.target.value)}
-                placeholder="sk-..."
-                helperText="OpenAI API 키를 입력하세요"
+                onChange={(e) => handleAIChange("apiKey", e.target.value)}
+                placeholder="AIza..."
+                helperText="Google AI Studio에서 생성한 Gemini API 키를 입력하세요"
               />
             </Grid>
             <Grid size={12}>
@@ -272,11 +303,22 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 <Select
                   value={settings.ai.model}
                   label="모델"
-                  onChange={(e) => handleAIChange('model', e.target.value)}
+                  onChange={(e) => handleAIChange("model", e.target.value)}
                 >
-                  <MenuItem value="gpt-3.5-turbo">GPT-3.5 Turbo</MenuItem>
-                  <MenuItem value="gpt-4">GPT-4</MenuItem>
-                  <MenuItem value="gpt-4-turbo">GPT-4 Turbo</MenuItem>
+                  <MenuItem value="gemini-2.0-flash-exp">
+                    Gemini 2.0 Flash (Experimental)
+                  </MenuItem>
+                  <MenuItem value="gemini-2.5-pro">Gemini 2.5 Pro</MenuItem>
+                  <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>
+                  <MenuItem value="gemini-2.5-flash-lite">
+                    Gemini 2.5 Flash Lite
+                  </MenuItem>
+                  <MenuItem value="gemini-live-2.5-flash-preview">
+                    Gemini Live 2.5 Flash Preview
+                  </MenuItem>
+                  <MenuItem value="gemini-2.0-flash-live-001">
+                    Gemini 2.0 Flash Live
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -286,7 +328,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 label="Temperature"
                 type="number"
                 value={settings.ai.temperature}
-                onChange={(e) => handleAIChange('temperature', parseFloat(e.target.value))}
+                onChange={(e) =>
+                  handleAIChange("temperature", parseFloat(e.target.value))
+                }
                 inputProps={{ min: 0, max: 2, step: 0.1 }}
                 helperText="0.0 (일관성) ~ 2.0 (창의성)"
               />
@@ -303,7 +347,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 <Select
                   value={settings.theme}
                   label="테마"
-                  onChange={(e) => handleGeneralChange('theme', e.target.value)}
+                  onChange={(e) => handleGeneralChange("theme", e.target.value)}
                 >
                   <MenuItem value="light">라이트</MenuItem>
                   <MenuItem value="dark">다크</MenuItem>
@@ -316,7 +360,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
                 <Select
                   value={settings.language}
                   label="언어"
-                  onChange={(e) => handleGeneralChange('language', e.target.value)}
+                  onChange={(e) =>
+                    handleGeneralChange("language", e.target.value)
+                  }
                 >
                   <MenuItem value="ko">한국어</MenuItem>
                   <MenuItem value="en">English</MenuItem>
