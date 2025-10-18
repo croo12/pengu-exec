@@ -11,45 +11,57 @@ import {
   Alert,
   CircularProgress,
   Divider,
-} from '@mui/material';
+  IconButton,
+  Tooltip,
+} from "@mui/material";
 import {
   Send as SendIcon,
   BugReport as BugIcon,
   AddTask as TaskIcon,
   Settings as SettingsIcon,
   BugReport as LogIcon,
-} from '@mui/icons-material';
-import { useIssueStore, Issue } from '@/store/issueStore';
-import SettingsDialog from '@/components/SettingsDialog';
-import LogViewer from '@/components/LogViewer';
-import { logger } from '@/utils/logger';
+  OpenInNew as OpenInNewIcon,
+  CheckCircle as CheckCircleIcon,
+} from "@mui/icons-material";
+import { useIssueStore, Issue } from "@/store/issueStore";
+import SettingsDialog from "@/components/SettingsDialog";
+import LogViewer from "@/components/LogViewer";
+import SettingsService from "@/services/settingsService";
+import { logger } from "@/utils/logger";
 
 const MainLayout: React.FC = () => {
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const { issues, createIssue, error } = useIssueStore();
 
   const handleSubmit = async () => {
     if (!inputText.trim()) return;
-    
-    logger.info('이슈 생성 요청 시작', { inputText }, 'MainLayout');
+
+    logger.info("이슈 생성 요청 시작", { inputText }, "MainLayout");
     setIsLoading(true);
-    
+    setLoadingStep("AI 분석 중...");
+
     try {
       await createIssue(inputText);
-      setInputText('');
-      logger.info('이슈 생성 성공', { inputText }, 'MainLayout');
+      setInputText("");
+      setLoadingStep("");
+      setSuccessMessage("이슈가 성공적으로 생성되었습니다!");
+      setTimeout(() => setSuccessMessage(""), 3000); // 3초 후 메시지 제거
+      logger.info("이슈 생성 성공", { inputText }, "MainLayout");
     } catch (err) {
-      logger.error('이슈 생성 실패', err, 'MainLayout');
+      setLoadingStep("");
+      logger.error("이슈 생성 실패", err, "MainLayout");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSubmit();
     }
@@ -60,12 +72,24 @@ const MainLayout: React.FC = () => {
       <Typography variant="h4" component="h1" gutterBottom align="center">
         자연어로 Jira 이슈 생성하기
       </Typography>
-      
-      <Typography variant="body1" color="text.secondary" align="center" sx={{ mb: 4 }}>
-        원하는 작업을 자연어로 입력하면 AI가 분석하여 적절한 Jira 이슈를 생성해드립니다.
+
+      <Typography
+        variant="body1"
+        color="text.secondary"
+        align="center"
+        sx={{ mb: 4 }}
+      >
+        원하는 작업을 자연어로 입력하면 AI가 분석하여 적절한 Jira 이슈를
+        생성해드립니다.
       </Typography>
 
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: { xs: "column", md: "row" },
+          gap: 3,
+        }}
+      >
         {/* 입력 섹션 */}
         <Box sx={{ flex: { xs: 1, md: 2 } }}>
           <Paper elevation={2} sx={{ p: 3 }}>
@@ -83,12 +107,12 @@ const MainLayout: React.FC = () => {
               variant="outlined"
               sx={{ mb: 2 }}
             />
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
               <Button
                 variant="outlined"
                 startIcon={<LogIcon />}
                 onClick={() => setLogViewerOpen(true)}
-                sx={{ display: import.meta.env.DEV ? 'inline-flex' : 'none' }}
+                sx={{ display: import.meta.env.DEV ? "inline-flex" : "none" }}
               >
                 로그
               </Button>
@@ -101,11 +125,13 @@ const MainLayout: React.FC = () => {
               </Button>
               <Button
                 variant="contained"
-                startIcon={isLoading ? <CircularProgress size={20} /> : <SendIcon />}
+                startIcon={
+                  isLoading ? <CircularProgress size={20} /> : <SendIcon />
+                }
                 onClick={handleSubmit}
                 disabled={isLoading || !inputText.trim()}
               >
-                {isLoading ? '생성 중...' : '이슈 생성'}
+                {isLoading ? loadingStep || "생성 중..." : "이슈 생성"}
               </Button>
             </Box>
           </Paper>
@@ -117,10 +143,10 @@ const MainLayout: React.FC = () => {
             <Typography variant="h6" gutterBottom>
               예시 요청
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <Card variant="outlined">
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <BugIcon color="error" sx={{ mr: 1, fontSize: 20 }} />
                     <Chip label="버그" size="small" color="error" />
                   </Box>
@@ -129,10 +155,10 @@ const MainLayout: React.FC = () => {
                   </Typography>
                 </CardContent>
               </Card>
-              
+
               <Card variant="outlined">
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <TaskIcon color="primary" sx={{ mr: 1, fontSize: 20 }} />
                     <Chip label="기능" size="small" color="primary" />
                   </Box>
@@ -145,6 +171,15 @@ const MainLayout: React.FC = () => {
           </Paper>
         </Box>
       </Box>
+
+      {/* 성공 메시지 표시 */}
+      {successMessage && (
+        <Box sx={{ mt: 2 }}>
+          <Alert severity="success" sx={{ mb: 2 }}>
+            {successMessage}
+          </Alert>
+        </Box>
+      )}
 
       {/* 에러 표시 */}
       {error && (
@@ -166,23 +201,109 @@ const MainLayout: React.FC = () => {
             {issues.map((issue: Issue, index: number) => (
               <Card key={index} variant="outlined" sx={{ mb: 2 }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Chip 
-                      label={issue.type} 
-                      color={issue.type === 'Bug' ? 'error' : 'primary'} 
-                      size="small"
-                      sx={{ mr: 2 }}
-                    />
-                    <Typography variant="body2" color="text.secondary">
-                      우선순위: {issue.priority}
-                    </Typography>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      mb: 1,
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      <Chip
+                        label={issue.type}
+                        color={
+                          issue.type === "Bug"
+                            ? "error"
+                            : issue.type === "Story"
+                            ? "success"
+                            : "primary"
+                        }
+                        size="small"
+                        sx={{ mr: 2 }}
+                      />
+                      <Chip
+                        label={issue.priority}
+                        color={
+                          issue.priority === "Critical"
+                            ? "error"
+                            : issue.priority === "High"
+                            ? "warning"
+                            : "default"
+                        }
+                        size="small"
+                        variant="outlined"
+                        sx={{ mr: 2 }}
+                      />
+                      <Chip
+                        label={issue.status}
+                        color={
+                          issue.status === "Done"
+                            ? "success"
+                            : issue.status === "In Progress"
+                            ? "warning"
+                            : "default"
+                        }
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Box>
+                    {issue.jiraKey && (
+                      <Tooltip title="Jira에서 보기">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            const settingsService = new SettingsService();
+                            const settings = settingsService.getSettings();
+                            if (settings?.jira.baseUrl) {
+                              const jiraUrl = `${settings.jira.baseUrl}/browse/${issue.jiraKey}`;
+                              window.open(jiraUrl, "_blank");
+                            } else {
+                              logger.warn(
+                                "Jira 설정이 없어 링크를 열 수 없습니다",
+                                null,
+                                "MainLayout"
+                              );
+                            }
+                          }}
+                        >
+                          <OpenInNewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </Box>
                   <Typography variant="h6" gutterBottom>
                     {issue.title}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1 }}
+                  >
                     {issue.description}
                   </Typography>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      생성일: {issue.createdAt.toLocaleString("ko-KR")}
+                    </Typography>
+                    {issue.jiraKey && (
+                      <Box sx={{ display: "flex", alignItems: "center" }}>
+                        <CheckCircleIcon
+                          color="success"
+                          sx={{ fontSize: 16, mr: 0.5 }}
+                        />
+                        <Typography variant="caption" color="success.main">
+                          Jira: {issue.jiraKey}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
                 </CardContent>
               </Card>
             ))}
@@ -197,10 +318,7 @@ const MainLayout: React.FC = () => {
       />
 
       {/* 로그 뷰어 다이얼로그 */}
-      <LogViewer
-        open={logViewerOpen}
-        onClose={() => setLogViewerOpen(false)}
-      />
+      <LogViewer open={logViewerOpen} onClose={() => setLogViewerOpen(false)} />
     </Box>
   );
 };

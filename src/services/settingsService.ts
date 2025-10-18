@@ -55,18 +55,18 @@ class SettingsService {
   getDefaultSettings(): AppSettings {
     return {
       jira: {
-        baseUrl: '',
-        email: '',
-        apiToken: '',
-        projectKey: '',
+        baseUrl: "",
+        email: "",
+        apiToken: "",
+        projectKey: "",
       },
       ai: {
-        apiKey: '',
-        model: 'gpt-3.5-turbo',
+        apiKey: "",
+        model: "gemini-2.0-flash-exp",
         temperature: 0.7,
       },
-      theme: 'light',
-      language: 'ko',
+      theme: "light",
+      language: "ko",
     };
   }
 
@@ -172,11 +172,11 @@ class SettingsService {
     }
 
     // AI 설정
-    if (import.meta.env.VITE_OPENAI_API_KEY) {
+    if (import.meta.env.VITE_GEMINI_API_KEY) {
       envSettings.ai = {
-        apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-        model: import.meta.env.VITE_AI_MODEL || 'gpt-3.5-turbo',
-        temperature: parseFloat(import.meta.env.VITE_AI_TEMPERATURE || '0.7'),
+        apiKey: import.meta.env.VITE_GEMINI_API_KEY,
+        model: import.meta.env.VITE_AI_MODEL || "gemini-2.0-flash-exp",
+        temperature: parseFloat(import.meta.env.VITE_AI_TEMPERATURE || "0.7"),
       };
     }
 
