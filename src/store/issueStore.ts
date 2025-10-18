@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
 import SettingsService from '@/services/settingsService';
+import TaskService from '@/services/task/TaskService';
 import { logger } from '@/utils/logger';
 
 export interface Issue {
@@ -20,19 +20,22 @@ interface IssueStore {
   issues: Issue[];
   error: string | null;
   isLoading: boolean;
+  currentTaskProgress: any[];
   createIssue: (naturalLanguageText: string) => Promise<void>;
   updateIssue: (id: string, updates: Partial<Issue>) => void;
   deleteIssue: (id: string) => void;
   clearError: () => void;
+  getTaskProgress: () => any[];
 }
 
-export const useIssueStore = create<IssueStore>((set) => ({
+export const useIssueStore = create<IssueStore>((set, get) => ({
   issues: [],
   error: null,
   isLoading: false,
+  currentTaskProgress: [],
 
   createIssue: async (naturalLanguageText: string) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, currentTaskProgress: [] });
     
     logger.debug('이슈 생성 프로세스 시작', { naturalLanguageText }, 'IssueStore');
     
@@ -76,96 +79,71 @@ export const useIssueStore = create<IssueStore>((set) => ({
         "IssueStore"
       );
 
-      // Tauri 백엔드를 통한 AI 분석
-      logger.debug(
-        "AI 분석 요청 시작",
-        {
-          text: naturalLanguageText,
-          model: settings.ai.model,
-        },
-        "IssueStore"
-      );
+      // TaskService 초기화 및 실행
+      const taskService = TaskService.getInstance();
+      if (!taskService) {
+        throw new Error("TaskService를 초기화할 수 없습니다.");
+      }
 
-      const analysis = (await invoke("analyze_with_ai", {
-        text: naturalLanguageText,
-        config: {
-          api_key: settings.ai.apiKey,
-          model: settings.ai.model,
-          temperature: settings.ai.temperature,
-        },
-      })) as {
-        title: string;
-        description: string;
-        issue_type: string;
-        priority: string;
-        labels: string[];
+      // 태스크 진행 상황 모니터링
+      const progressListener = () => {
+        const currentProgress = taskService.getRunningTasks();
+        set({ currentTaskProgress: currentProgress });
       };
 
-      logger.debug("AI 분석 완료", analysis, "IssueStore");
+      taskService.addEventListener(progressListener);
 
-      // Tauri 백엔드를 통한 Jira 이슈 생성
-      logger.debug(
-        "Jira 이슈 생성 요청 시작",
-        {
-          projectKey: settings.jira.projectKey,
-          issueType: analysis.issue_type,
-        },
-        "IssueStore"
-      );
+      try {
+        // 태스크 체인 실행
+        const result = await taskService.createIssue(naturalLanguageText, settings);
 
-      const jiraIssue = (await invoke("create_jira_issue", {
-        analysis: {
-          title: analysis.title,
-          description: analysis.description,
-          issue_type: analysis.issue_type,
-          priority: analysis.priority,
-          labels: analysis.labels,
-        },
-        config: {
-          base_url: settings.jira.baseUrl,
-          email: settings.jira.email,
-          api_token: settings.jira.apiToken,
-          project_key: settings.jira.projectKey,
-        },
-      })) as {
-        key: string;
-        summary: string;
-        description: string;
-        issue_type: string;
-        priority: string;
-        status: string;
-      };
+        if (!result.success) {
+          throw new Error(result.error || "태스크 체인 실행에 실패했습니다.");
+        }
 
-      logger.info(
-        "Jira 이슈 생성 완료",
-        { jiraKey: jiraIssue.key },
-        "IssueStore"
-      );
+        // 결과에서 Jira 이슈 정보 추출
+        const jiraResult = result.data;
+        if (!jiraResult || !jiraResult.jiraKey) {
+          throw new Error("Jira 이슈 생성 결과가 올바르지 않습니다.");
+        }
 
-      const newIssue: Issue = {
-        id: Date.now().toString(),
-        title: jiraIssue.summary,
-        description: jiraIssue.description,
-        type: jiraIssue.issue_type as Issue["type"],
-        priority: jiraIssue.priority as Issue["priority"],
-        status: jiraIssue.status as Issue["status"],
-        createdAt: new Date(),
-        jiraKey: jiraIssue.key,
-      };
+        logger.info(
+          "Jira 이슈 생성 완료",
+          { jiraKey: jiraResult.jiraKey },
+          "IssueStore"
+        );
 
-      set((state) => ({
-        issues: [newIssue, ...state.issues],
-        isLoading: false,
-      }));
+        const newIssue: Issue = {
+          id: Date.now().toString(),
+          title: jiraResult.summary,
+          description: jiraResult.description,
+          type: jiraResult.issueType as Issue["type"],
+          priority: jiraResult.priority as Issue["priority"],
+          status: jiraResult.status as Issue["status"],
+          createdAt: new Date(),
+          jiraKey: jiraResult.jiraKey,
+        };
 
-      logger.info(
-        "이슈 생성 프로세스 완료",
-        {
-          issueId: newIssue.id,
-          jiraKey: newIssue.jiraKey,
-        },
-        "IssueStore"
-      );
+        set((state) => ({
+          issues: [newIssue, ...state.issues],
+          isLoading: false,
+          currentTaskProgress: [],
+        }));
+
+        logger.info(
+          "이슈 생성 프로세스 완료",
+          {
+            issueId: newIssue.id,
+            jiraKey: newIssue.jiraKey,
+          },
+          "IssueStore"
+        );
+
+      } finally {
+        // 이벤트 리스너 제거
+        taskService.removeEventListener(progressListener);
+      }
+
     } catch (error) {
       let errorMessage = "이슈 생성에 실패했습니다.";
 
@@ -193,6 +171,7 @@ export const useIssueStore = create<IssueStore>((set) => ({
       set({
         error: errorMessage,
         isLoading: false,
+        currentTaskProgress: [],
       });
     }
   },
@@ -213,6 +192,10 @@ export const useIssueStore = create<IssueStore>((set) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  getTaskProgress: () => {
+    return get().currentTaskProgress;
   },
 }));
 

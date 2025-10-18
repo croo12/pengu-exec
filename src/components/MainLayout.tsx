@@ -13,6 +13,11 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  LinearProgress,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
 } from "@mui/material";
 import {
   Send as SendIcon,
@@ -22,6 +27,9 @@ import {
   BugReport as LogIcon,
   OpenInNew as OpenInNewIcon,
   CheckCircle as CheckCircleIcon,
+  PlayArrow as PlayIcon,
+  CheckCircle as CheckIcon,
+  Error as ErrorIcon,
 } from "@mui/icons-material";
 import { useIssueStore, Issue } from "@/store/issueStore";
 import SettingsDialog from "@/components/SettingsDialog";
@@ -36,7 +44,7 @@ const MainLayout: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
-  const { issues, createIssue, error } = useIssueStore();
+  const { issues, createIssue, error, currentTaskProgress } = useIssueStore();
 
   const handleSubmit = async () => {
     if (!inputText.trim()) return;
@@ -171,6 +179,60 @@ const MainLayout: React.FC = () => {
           </Paper>
         </Box>
       </Box>
+
+      {/* 태스크 진행 상황 표시 */}
+      {currentTaskProgress.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Paper elevation={2} sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              작업 진행 상황
+            </Typography>
+            <List>
+              {currentTaskProgress.map((task, index) => (
+                <ListItem key={task.taskId || index}>
+                  <ListItemIcon>
+                    {task.status === "completed" ? (
+                      <CheckIcon color="success" />
+                    ) : task.status === "failed" ? (
+                      <ErrorIcon color="error" />
+                    ) : task.status === "running" ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <PlayIcon color="action" />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={task.taskName}
+                    secondary={
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          {task.message ||
+                            `${
+                              task.status === "running"
+                                ? "실행 중"
+                                : task.status === "completed"
+                                ? "완료"
+                                : task.status === "failed"
+                                ? "실패"
+                                : "대기 중"
+                            }`}
+                        </Typography>
+                        {task.status === "running" && (
+                          <LinearProgress
+                            variant="determinate"
+                            value={task.progress || 0}
+                            sx={{ mt: 1 }}
+                          />
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          </Paper>
+        </Box>
+      )}
 
       {/* 성공 메시지 표시 */}
       {successMessage && (
