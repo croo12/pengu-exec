@@ -108,10 +108,65 @@ export const jiraCreateOnlyChain: TaskChain = {
   }
 };
 
+// Node.js 코드 실행 체인
+export const nodeExecutionChain: TaskChain = {
+  id: 'node_execution_chain',
+  name: 'Node.js 코드 실행 체인',
+  description: 'Node.js 코드를 실행하고 결과를 반환하는 체인',
+  tasks: [
+    {
+      taskId: 'node_execution',
+      taskType: 'node_execution',
+      retryCount: 1,
+      timeout: 60000, // 60초
+    }
+  ],
+  onComplete: (result) => {
+    logger.info('Node.js 실행 체인 완료', { result }, 'TaskChainDefinitions');
+  },
+  onError: (error) => {
+    logger.error('Node.js 실행 체인 실패', error, 'TaskChainDefinitions');
+  }
+};
+
+// AI 분석 + Node.js 실행 체인
+export const aiAnalysisWithNodeExecutionChain: TaskChain = {
+  id: 'ai_analysis_with_node_execution_chain',
+  name: 'AI 분석 + Node.js 실행 체인',
+  description: '자연어를 AI로 분석한 후 Node.js 코드를 실행하는 체인',
+  tasks: [
+    {
+      taskId: 'ai_analysis',
+      taskType: 'ai_analysis',
+      retryCount: 2,
+      timeout: 30000,
+    },
+    {
+      taskId: 'node_execution',
+      taskType: 'node_execution',
+      retryCount: 1,
+      timeout: 60000,
+      condition: (context) => {
+        // AI 분석이 성공한 경우에만 Node.js 실행
+        const aiResult = context['ai_analysis_result'];
+        return aiResult && aiResult.success;
+      }
+    }
+  ],
+  onComplete: (result) => {
+    logger.info('AI 분석 + Node.js 실행 체인 완료', { result }, 'TaskChainDefinitions');
+  },
+  onError: (error) => {
+    logger.error('AI 분석 + Node.js 실행 체인 실패', error, 'TaskChainDefinitions');
+  }
+};
+
 // 모든 체인 목록
 export const taskChains: TaskChain[] = [
   createIssueChain,
   createIssueWithNotificationChain,
   aiAnalysisOnlyChain,
   jiraCreateOnlyChain,
+  nodeExecutionChain,
+  aiAnalysisWithNodeExecutionChain,
 ];

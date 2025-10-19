@@ -70,3 +70,27 @@ export interface ErrorEvent {
   code?: string;
   timestamp: Date;
 }
+
+// Node.js 실행 관련 타입 정의
+export interface NodeExecutionInput {
+  code: string;
+  timeout?: number;
+  workingDirectory?: string;
+  environment?: Record<string, string>;
+  args?: string[];
+}
+
+export interface NodeExecutionOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  executionTime: number;
+  tempFilePath?: string;
+}
+
+export interface NodeExecutionResult {
+  success: boolean;
+  data?: NodeExecutionOutput;
+  error?: string;
+  metadata?: Record<string, any>;
+}
