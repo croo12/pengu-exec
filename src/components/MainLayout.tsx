@@ -13,6 +13,12 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  LinearProgress,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Snackbar,
 } from "@mui/material";
 import {
   Send as SendIcon,
@@ -22,12 +28,20 @@ import {
   BugReport as LogIcon,
   OpenInNew as OpenInNewIcon,
   CheckCircle as CheckCircleIcon,
+  PlayArrow as PlayIcon,
+  CheckCircle as CheckIcon,
+  Error as ErrorIcon,
+  Code as CodeIcon,
 } from "@mui/icons-material";
 import { useIssueStore, Issue } from "@/store/issueStore";
 import SettingsDialog from "@/components/SettingsDialog";
 import LogViewer from "@/components/LogViewer";
+import TaskChainSelector from "@/components/TaskChainSelector";
+import NodeExecutionResult from "@/components/NodeExecutionResult";
 import SettingsService from "@/services/settingsService";
+import TaskService from "@/services/task/TaskService";
 import { logger } from "@/utils/logger";
+import { NodeExecutionOutput } from "@/types";
 
 const MainLayout: React.FC = () => {
   const [inputText, setInputText] = useState("");
@@ -36,25 +50,106 @@ const MainLayout: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
-  const { issues, createIssue, error } = useIssueStore();
+  const [selectedChain, setSelectedChain] = useState("create_issue_chain");
+  const [nodeExecutionResult, setNodeExecutionResult] =
+    useState<NodeExecutionOutput | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
+  const { issues, createIssue, error, currentTaskProgress } = useIssueStore();
 
   const handleSubmit = async () => {
     if (!inputText.trim()) return;
 
-    logger.info("이슈 생성 요청 시작", { inputText }, "MainLayout");
+    logger.info(
+      "작업 실행 요청 시작",
+      { inputText, selectedChain },
+      "MainLayout"
+    );
     setIsLoading(true);
-    setLoadingStep("AI 분석 중...");
+    setLoadingStep("작업 실행 중...");
+    setNodeExecutionResult(null);
 
     try {
-      await createIssue(inputText);
+      const taskService = TaskService.getInstance();
+      const settingsService = new SettingsService();
+      const settings = settingsService.getSettings();
+
+      let result: any;
+
+      switch (selectedChain) {
+        case "create_issue_chain":
+          setLoadingStep("AI 분석 중...");
+          await createIssue(inputText);
+          setSuccessMessage("이슈가 성공적으로 생성되었습니다!");
+          break;
+
+        case "create_issue_with_notification_chain":
+          setLoadingStep("AI 분석 및 이슈 생성 중...");
+          result = await taskService.createIssueWithNotification(
+            inputText,
+            settings
+          );
+          setSuccessMessage("이슈가 생성되고 알림이 전송되었습니다!");
+          break;
+
+        case "ai_analysis_only_chain":
+          setLoadingStep("AI 분석 중...");
+          result = await taskService.analyzeText(inputText, settings?.ai);
+          setSuccessMessage("AI 분석이 완료되었습니다!");
+          break;
+
+        case "jira_create_only_chain":
+          setLoadingStep("Jira 이슈 생성 중...");
+          // 이 경우에는 이미 분석된 데이터가 필요하므로 예시로 처리
+          setSuccessMessage(
+            "Jira 이슈 생성 기능입니다. 먼저 AI 분석을 수행해주세요."
+          );
+          break;
+
+        case "node_execution_chain":
+          setLoadingStep("Node.js 코드 실행 중...");
+          result = await taskService.executeNodeCode(inputText, {
+            timeout: 30000,
+            workingDirectory: "",
+            environment: { NODE_ENV: "development" },
+          });
+          console.log("Node.js 실행 결과:", result);
+          if (result?.data) {
+            setNodeExecutionResult(result.data);
+            setSuccessMessage("Node.js 코드가 성공적으로 실행되었습니다!");
+          } else {
+            console.error("Node.js 실행 실패:", result);
+            setSuccessMessage(`Node.js 실행 실패: ${result?.error || '알 수 없는 오류'}`);
+          }
+          break;
+
+        case "ai_analysis_with_node_execution_chain":
+          setLoadingStep("AI 분석 및 Node.js 실행 중...");
+          result = await taskService.analyzeAndExecuteNodeCode(
+            inputText,
+            settings?.ai,
+            {
+              timeout: 30000,
+              workingDirectory: "",
+              environment: { NODE_ENV: "development" },
+            }
+          );
+          if (result?.data) {
+            setNodeExecutionResult(result.data);
+            setSuccessMessage("AI 분석 및 Node.js 실행이 완료되었습니다!");
+          }
+          break;
+
+        default:
+          throw new Error(`지원하지 않는 작업 유형: ${selectedChain}`);
+      }
+
       setInputText("");
       setLoadingStep("");
-      setSuccessMessage("이슈가 성공적으로 생성되었습니다!");
-      setTimeout(() => setSuccessMessage(""), 3000); // 3초 후 메시지 제거
-      logger.info("이슈 생성 성공", { inputText }, "MainLayout");
+      setTimeout(() => setSuccessMessage(""), 5000);
+      logger.info("작업 실행 성공", { inputText, selectedChain }, "MainLayout");
     } catch (err) {
       setLoadingStep("");
-      logger.error("이슈 생성 실패", err, "MainLayout");
+      logger.error("작업 실행 실패", err, "MainLayout");
     } finally {
       setIsLoading(false);
     }
@@ -67,10 +162,55 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopyMessage("클립보드에 복사되었습니다!");
+        setTimeout(() => setCopyMessage(""), 2000);
+      })
+      .catch(() => {
+        setCopyMessage("복사에 실패했습니다.");
+        setTimeout(() => setCopyMessage(""), 2000);
+      });
+  };
+
+  const getPlaceholderText = () => {
+    switch (selectedChain) {
+      case "node_execution_chain":
+        return '예: console.log("Hello, World!");\nconsole.log("Current time:", new Date().toISOString());';
+      case "ai_analysis_with_node_execution_chain":
+        return "예: 사용자 입력을 분석해서 Node.js 코드를 생성해줘";
+      case "ai_analysis_only_chain":
+        return "예: 로그인 페이지에서 버그가 있어서 수정이 필요해요";
+      case "jira_create_only_chain":
+        return "이미 분석된 데이터로 Jira 이슈를 생성합니다";
+      default:
+        return "예: 로그인 페이지에서 버그가 있어서 수정이 필요해요";
+    }
+  };
+
+  const getButtonText = () => {
+    switch (selectedChain) {
+      case "node_execution_chain":
+        return "Node.js 실행";
+      case "ai_analysis_with_node_execution_chain":
+        return "AI 분석 + 실행";
+      case "ai_analysis_only_chain":
+        return "AI 분석";
+      case "jira_create_only_chain":
+        return "Jira 생성";
+      case "create_issue_with_notification_chain":
+        return "이슈 생성 + 알림";
+      default:
+        return "이슈 생성";
+    }
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Typography variant="h4" component="h1" gutterBottom align="center">
-        자연어로 Jira 이슈 생성하기
+        PenguExec - AI 작업 자동화
       </Typography>
 
       <Typography
@@ -79,9 +219,17 @@ const MainLayout: React.FC = () => {
         align="center"
         sx={{ mb: 4 }}
       >
-        원하는 작업을 자연어로 입력하면 AI가 분석하여 적절한 Jira 이슈를
-        생성해드립니다.
+        다양한 작업 유형을 선택하고 자연어로 입력하면 AI가 분석하여 자동으로
+        처리해드립니다.
       </Typography>
+
+      {/* 작업 유형 선택 */}
+      <Box sx={{ mb: 3 }}>
+        <TaskChainSelector
+          selectedChain={selectedChain}
+          onChainChange={setSelectedChain}
+        />
+      </Box>
 
       <Box
         sx={{
@@ -94,16 +242,18 @@ const MainLayout: React.FC = () => {
         <Box sx={{ flex: { xs: 1, md: 2 } }}>
           <Paper elevation={2} sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              요청사항 입력
+              {selectedChain.includes("node")
+                ? "코드 또는 요청사항 입력"
+                : "요청사항 입력"}
             </Typography>
             <TextField
               fullWidth
               multiline
-              rows={4}
+              rows={selectedChain.includes("node") ? 6 : 4}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="예: 로그인 페이지에서 버그가 있어서 수정이 필요해요"
+              placeholder={getPlaceholderText()}
               variant="outlined"
               sx={{ mb: 2 }}
             />
@@ -126,12 +276,18 @@ const MainLayout: React.FC = () => {
               <Button
                 variant="contained"
                 startIcon={
-                  isLoading ? <CircularProgress size={20} /> : <SendIcon />
+                  isLoading ? (
+                    <CircularProgress size={20} />
+                  ) : selectedChain.includes("node") ? (
+                    <CodeIcon />
+                  ) : (
+                    <SendIcon />
+                  )
                 }
                 onClick={handleSubmit}
                 disabled={isLoading || !inputText.trim()}
               >
-                {isLoading ? loadingStep || "생성 중..." : "이슈 생성"}
+                {isLoading ? loadingStep || "실행 중..." : getButtonText()}
               </Button>
             </Box>
           </Paper>
@@ -171,6 +327,65 @@ const MainLayout: React.FC = () => {
           </Paper>
         </Box>
       </Box>
+
+      {/* 태스크 진행 상황 표시 */}
+      {currentTaskProgress.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Paper elevation={2} sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              작업 진행 상황
+            </Typography>
+            <List>
+              {currentTaskProgress.map((task, index) => (
+                <ListItem key={task.taskId || index}>
+                  <ListItemIcon>
+                    {task.status === "completed" ? (
+                      <CheckIcon color="success" />
+                    ) : task.status === "failed" ? (
+                      <ErrorIcon color="error" />
+                    ) : task.status === "running" ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <PlayIcon color="action" />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={task.taskName}
+                    secondary={
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          {task.message ||
+                            `${
+                              task.status === "running"
+                                ? "실행 중"
+                                : task.status === "completed"
+                                ? "완료"
+                                : task.status === "failed"
+                                ? "실패"
+                                : "대기 중"
+                            }`}
+                        </Typography>
+                        {task.status === "running" && (
+                          <LinearProgress
+                            variant="determinate"
+                            value={task.progress || 0}
+                            sx={{ mt: 1 }}
+                          />
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          </Paper>
+        </Box>
+      )}
+
+      {/* Node.js 실행 결과 표시 */}
+      {nodeExecutionResult && (
+        <NodeExecutionResult result={nodeExecutionResult} onCopy={handleCopy} />
+      )}
 
       {/* 성공 메시지 표시 */}
       {successMessage && (
@@ -319,6 +534,14 @@ const MainLayout: React.FC = () => {
 
       {/* 로그 뷰어 다이얼로그 */}
       <LogViewer open={logViewerOpen} onClose={() => setLogViewerOpen(false)} />
+
+      {/* 복사 메시지 */}
+      <Snackbar
+        open={!!copyMessage}
+        autoHideDuration={2000}
+        onClose={() => setCopyMessage("")}
+        message={copyMessage}
+      />
     </Box>
   );
 };

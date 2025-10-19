@@ -4,22 +4,23 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { Box, Container, Typography, AppBar, Toolbar } from '@mui/material';
 import PenguIcon from '@mui/icons-material/Pets';
 import MainLayout from '@/components/MainLayout';
-import { logger } from '@/utils/logger';
+import TaskService from "@/services/task/TaskService";
+import { logger } from "@/utils/logger";
 
 // MUI 테마 설정
 const theme = createTheme({
   palette: {
-    mode: 'light',
+    mode: "light",
     primary: {
-      main: '#1976d2',
-      light: '#42a5f5',
-      dark: '#1565c0',
+      main: "#1976d2",
+      light: "#42a5f5",
+      dark: "#1565c0",
     },
     secondary: {
-      main: '#dc004e',
+      main: "#dc004e",
     },
     background: {
-      default: '#f5f5f5',
+      default: "#f5f5f5",
     },
   },
   typography: {
@@ -35,11 +36,24 @@ const theme = createTheme({
 
 function App() {
   useEffect(() => {
-    logger.info('PenguExec 앱 시작', {
-      version: '0.1.0',
-      environment: import.meta.env.MODE,
-      timestamp: new Date().toISOString()
-    }, 'App');
+    logger.info(
+      "PenguExec 앱 시작",
+      {
+        version: "0.1.0",
+        environment: import.meta.env.MODE,
+        timestamp: new Date().toISOString(),
+      },
+      "App"
+    );
+
+    // TaskService 초기화
+    try {
+      const taskService = TaskService.getInstance();
+      taskService.initialize();
+      logger.info("TaskService 초기화 완료", {}, "App");
+    } catch (error) {
+      logger.error("TaskService 초기화 실패", error, "App");
+    }
   }, []);
 
   return (
@@ -52,9 +66,7 @@ function App() {
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               PenguExec
             </Typography>
-            <Typography variant="body2">
-              AI-Powered Jira Assistant
-            </Typography>
+            <Typography variant="body2">AI-Powered Jira Assistant</Typography>
           </Toolbar>
         </AppBar>
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>

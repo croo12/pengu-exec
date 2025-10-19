@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+use tokio::time::timeout as tokio_timeout;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JiraConfig {
@@ -35,6 +38,24 @@ pub struct JiraIssue {
     pub issue_type: String,
     pub priority: String,
     pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeExecutionInput {
+    pub code: String,
+    pub timeout: Option<u64>,
+    pub working_directory: String,
+    pub environment: HashMap<String, String>,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeExecutionOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exitCode: i32,
+    pub executionTime: u64,
+    pub tempFilePath: Option<String>,
 }
 
 // AI 분석 명령어
@@ -234,28 +255,6 @@ async fn create_jira_issue(analysis: IssueAnalysis, config: JiraConfig) -> Resul
         
         println!("Jira API 오류 ({}): {}", status, error_text);
         Err(format!("Jira API 오류 ({}): {}", status, error_text))
-    }
-}
-
-// 이슈 타입을 Jira에서 사용하는 이름으로 매핑
-fn map_issue_type_to_jira(issue_type: &str) -> &'static str {
-    match issue_type {
-        "Bug" => "Bug",
-        "Task" => "Task", 
-        "Story" => "Story",
-        "Epic" => "Epic",
-        _ => "Task" // 기본값
-    }
-}
-
-// 이슈 타입 ID를 반환 (일반적인 Jira 이슈 타입 ID)
-fn get_issue_type_id(issue_type: &str) -> &'static str {
-    match issue_type {
-        "Bug" => "10001", // 일반적인 Bug 이슈 타입 ID
-        "Task" => "10002", // 일반적인 Task 이슈 타입 ID
-        "Story" => "10003", // 일반적인 Story 이슈 타입 ID
-        "Epic" => "10004", // 일반적인 Epic 이슈 타입 ID
-        _ => "10002" // 기본값: Task
     }
 }
 
@@ -485,6 +484,107 @@ async fn get_jira_project_metadata(config: JiraConfig) -> Result<serde_json::Val
     }
 }
 
+// Node.js 코드 실행 명령어
+#[tauri::command]
+async fn execute_node_code(
+    code: String,
+    timeout: Option<u64>,
+    working_directory: String,
+    environment: HashMap<String, String>,
+    args: Vec<String>,
+) -> Result<NodeExecutionOutput, String> {
+    let start_time = Instant::now();
+
+    // 입력 검증
+    if code.trim().is_empty() {
+        return Err("실행할 코드가 제공되지 않았습니다".to_string());
+    }
+
+    // 코드 길이 제한 (1MB)
+    const MAX_CODE_LENGTH: usize = 1024 * 1024;
+    if code.len() > MAX_CODE_LENGTH {
+        return Err(format!("코드가 너무 깁니다. 최대 {}바이트까지 허용됩니다", MAX_CODE_LENGTH));
+    }
+
+    // 타임아웃 검증
+    let timeout_duration = timeout.unwrap_or(30000);
+    if timeout_duration < 1000 || timeout_duration > 300000 {
+        return Err("타임아웃은 1초에서 300초 사이여야 합니다".to_string());
+    }
+
+    // 임시 파일 생성
+    let temp_dir = std::env::temp_dir();
+    let temp_filename = format!("pengu_exec_{}_{}.js", 
+        start_time.elapsed().as_millis(),
+        rand::random::<u32>()
+    );
+    let temp_file = temp_dir.join(&temp_filename);
+    let temp_file_path = temp_file.to_string_lossy().to_string();
+
+    // 코드를 임시 파일에 저장
+    fs::write(&temp_file, &code)
+        .map_err(|e| format!("임시 파일 생성 실패: {}", e))?;
+
+    // Node.js 프로세스 실행
+    let mut cmd = Command::new("node");
+    cmd.arg(&temp_file);
+    
+    // 추가 인수 추가
+    for arg in &args {
+        cmd.arg(arg);
+    }
+
+    // 작업 디렉토리 설정
+    if !working_directory.is_empty() {
+        cmd.current_dir(&working_directory);
+    }
+
+    // 환경 변수 설정
+    for (key, value) in &environment {
+        cmd.env(key, value);
+    }
+
+    // 표준 입출력 설정
+    cmd.stdin(Stdio::null())
+       .stdout(Stdio::piped())
+       .stderr(Stdio::piped());
+
+    // 프로세스 실행 및 타임아웃 처리
+    let result = tokio_timeout(
+        Duration::from_millis(timeout_duration),
+        tokio::process::Command::from(cmd).output()
+    ).await;
+
+    let execution_time = start_time.elapsed().as_millis() as u64;
+
+    // 임시 파일 정리
+    if let Err(e) = fs::remove_file(&temp_file) {
+        eprintln!("임시 파일 정리 실패: {}", e);
+    }
+
+    match result {
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let exit_code = output.status.code().unwrap_or(-1);
+
+            Ok(NodeExecutionOutput {
+                stdout: stdout.trim().to_string(),
+                stderr: stderr.trim().to_string(),
+                exitCode: exit_code,
+                executionTime: execution_time,
+                tempFilePath: Some(temp_file_path),
+            })
+        }
+        Ok(Err(e)) => {
+            Err(format!("프로세스 실행 오류: {}", e))
+        }
+        Err(_) => {
+            Err(format!("코드 실행이 {}ms 타임아웃되었습니다", timeout_duration))
+        }
+    }
+}
+
 // 기존 greet 명령어 (호환성을 위해 유지)
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -495,6 +595,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             analyze_with_ai,
@@ -506,7 +607,8 @@ pub fn run() {
             load_settings,
             save_logs_to_file,
             get_log_files,
-            read_log_file
+            read_log_file,
+            execute_node_code
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
