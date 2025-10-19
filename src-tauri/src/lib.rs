@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use tokio::time::timeout;
+use tokio::time::timeout as tokio_timeout;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JiraConfig {
@@ -53,9 +53,9 @@ pub struct NodeExecutionInput {
 pub struct NodeExecutionOutput {
     pub stdout: String,
     pub stderr: String,
-    pub exit_code: i32,
-    pub execution_time: u64,
-    pub temp_file_path: Option<String>,
+    pub exitCode: i32,
+    pub executionTime: u64,
+    pub tempFilePath: Option<String>,
 }
 
 // AI 분석 명령어
@@ -255,28 +255,6 @@ async fn create_jira_issue(analysis: IssueAnalysis, config: JiraConfig) -> Resul
         
         println!("Jira API 오류 ({}): {}", status, error_text);
         Err(format!("Jira API 오류 ({}): {}", status, error_text))
-    }
-}
-
-// 이슈 타입을 Jira에서 사용하는 이름으로 매핑
-fn map_issue_type_to_jira(issue_type: &str) -> &'static str {
-    match issue_type {
-        "Bug" => "Bug",
-        "Task" => "Task", 
-        "Story" => "Story",
-        "Epic" => "Epic",
-        _ => "Task" // 기본값
-    }
-}
-
-// 이슈 타입 ID를 반환 (일반적인 Jira 이슈 타입 ID)
-fn get_issue_type_id(issue_type: &str) -> &'static str {
-    match issue_type {
-        "Bug" => "10001", // 일반적인 Bug 이슈 타입 ID
-        "Task" => "10002", // 일반적인 Task 이슈 타입 ID
-        "Story" => "10003", // 일반적인 Story 이슈 타입 ID
-        "Epic" => "10004", // 일반적인 Epic 이슈 타입 ID
-        _ => "10002" // 기본값: Task
     }
 }
 
@@ -508,23 +486,28 @@ async fn get_jira_project_metadata(config: JiraConfig) -> Result<serde_json::Val
 
 // Node.js 코드 실행 명령어
 #[tauri::command]
-async fn execute_node_code(input: NodeExecutionInput) -> Result<NodeExecutionOutput, String> {
+async fn execute_node_code(
+    code: String,
+    timeout: Option<u64>,
+    working_directory: String,
+    environment: HashMap<String, String>,
+    args: Vec<String>,
+) -> Result<NodeExecutionOutput, String> {
     let start_time = Instant::now();
-    let mut temp_file_path: Option<String> = None;
 
     // 입력 검증
-    if input.code.trim().is_empty() {
+    if code.trim().is_empty() {
         return Err("실행할 코드가 제공되지 않았습니다".to_string());
     }
 
     // 코드 길이 제한 (1MB)
     const MAX_CODE_LENGTH: usize = 1024 * 1024;
-    if input.code.len() > MAX_CODE_LENGTH {
+    if code.len() > MAX_CODE_LENGTH {
         return Err(format!("코드가 너무 깁니다. 최대 {}바이트까지 허용됩니다", MAX_CODE_LENGTH));
     }
 
     // 타임아웃 검증
-    let timeout_duration = input.timeout.unwrap_or(30000);
+    let timeout_duration = timeout.unwrap_or(30000);
     if timeout_duration < 1000 || timeout_duration > 300000 {
         return Err("타임아웃은 1초에서 300초 사이여야 합니다".to_string());
     }
@@ -536,10 +519,10 @@ async fn execute_node_code(input: NodeExecutionInput) -> Result<NodeExecutionOut
         rand::random::<u32>()
     );
     let temp_file = temp_dir.join(&temp_filename);
-    temp_file_path = Some(temp_file.to_string_lossy().to_string());
+    let temp_file_path = temp_file.to_string_lossy().to_string();
 
     // 코드를 임시 파일에 저장
-    fs::write(&temp_file, &input.code)
+    fs::write(&temp_file, &code)
         .map_err(|e| format!("임시 파일 생성 실패: {}", e))?;
 
     // Node.js 프로세스 실행
@@ -547,17 +530,17 @@ async fn execute_node_code(input: NodeExecutionInput) -> Result<NodeExecutionOut
     cmd.arg(&temp_file);
     
     // 추가 인수 추가
-    for arg in &input.args {
+    for arg in &args {
         cmd.arg(arg);
     }
 
     // 작업 디렉토리 설정
-    if !input.working_directory.is_empty() {
-        cmd.current_dir(&input.working_directory);
+    if !working_directory.is_empty() {
+        cmd.current_dir(&working_directory);
     }
 
     // 환경 변수 설정
-    for (key, value) in &input.environment {
+    for (key, value) in &environment {
         cmd.env(key, value);
     }
 
@@ -567,7 +550,7 @@ async fn execute_node_code(input: NodeExecutionInput) -> Result<NodeExecutionOut
        .stderr(Stdio::piped());
 
     // 프로세스 실행 및 타임아웃 처리
-    let result = timeout(
+    let result = tokio_timeout(
         Duration::from_millis(timeout_duration),
         tokio::process::Command::from(cmd).output()
     ).await;
@@ -588,9 +571,9 @@ async fn execute_node_code(input: NodeExecutionInput) -> Result<NodeExecutionOut
             Ok(NodeExecutionOutput {
                 stdout: stdout.trim().to_string(),
                 stderr: stderr.trim().to_string(),
-                exit_code,
-                execution_time,
-                temp_file_path,
+                exitCode: exit_code,
+                executionTime: execution_time,
+                tempFilePath: Some(temp_file_path),
             })
         }
         Ok(Err(e)) => {
@@ -612,6 +595,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             analyze_with_ai,

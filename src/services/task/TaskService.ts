@@ -271,6 +271,12 @@ class TaskService {
         args: options?.args,
       };
 
+      logger.info(
+        "Node.js 실행 입력 데이터",
+        { nodeExecutionInput },
+        "TaskService"
+      );
+
       const result = await this.orchestrator.executeChain(
         "node_execution_chain",
         nodeExecutionInput,

@@ -24,13 +24,29 @@ export class NodeExecutionTask implements Task<NodeExecutionInput, NodeExecution
       }
 
       // Tauri 백엔드를 통해 Node.js 코드 실행
-      const result = await invoke<NodeExecutionOutput>('execute_node_code', {
+      const invokeParams = {
         code: input.code,
         timeout: input.timeout || 30000,
-        workingDirectory: input.workingDirectory || '',
+        workingDirectory: input.workingDirectory || "",
         environment: input.environment || {},
-        args: input.args || []
+        args: input.args || [],
+      };
+
+      logger.info(
+        "Tauri 백엔드 호출 시작",
+        { invokeParams },
+        "NodeExecutionTask"
+      );
+
+      const result = await invoke<NodeExecutionOutput>("execute_node_code", {
+        code: input.code,
+        timeout: input.timeout || 30000,
+        workingDirectory: input.workingDirectory || "",
+        environment: input.environment || {},
+        args: input.args || [],
       });
+
+      logger.info("Tauri 백엔드 응답 받음", { result }, "NodeExecutionTask");
       
       const executionTime = Date.now() - startTime;
       
